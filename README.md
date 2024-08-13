@@ -49,7 +49,7 @@ oc -n rhacs-operator get secret central-htpasswd -o go-template='{{index .data "
 oc get route -n openshift-image-registry
 No resources found in openshift-image-registry namespace.
 ```
-7. As the route does not exist so lets create it and copy the route to add in registry.
+7. As the route does not exist so lets create it and copy the route, which we need to add to central later on.
 
 ```bash
 oc patch configs.imageregistry.operator.openshift.io/cluster --patch '{"spec":{"defaultRoute":true}}' --type=merge
@@ -63,21 +63,65 @@ e
 9. Click on `New Integration >> Provide your cluster registry endpoint, username and password`
 ![Central Registry Configuration](images/central-registry-username-password.png)
 
-10. Now configure the registry configuration in central with `route` fetched in 7th step, `admin user`, and `password` fetched from 5th step. Keep the `TLS` Certificate Validation disabled.
 
-![Create Integration](images/central-create-integration.png)
+10.  We need to provide a username and password in the `create-integration` for communication with Openshift registry. We can provide the `admin user`, and `password` fetched from 5th step.  We can also create a service account and a token for service account which can be used as password in registry creation page. Below steps can be used to create the SA and token.
 
-11. Create a service account to use with central in a namespace from where you want to scan the images and add the `image-puller` role to the SA.
 ```bash
 oc new-project scan
 oc create sa rhacs-scanner-sa -n scan
 oc policy add-role-to-user system:image-puller system:serviceaccount:scan:rhacs-scanner-sa -n scan
 ```
-12. Get the SA token and copy it.
+    
+11 Now configure the registry configuration in central with `route` fetched in 7th step, `admin user`, and `password` fetched from 5th step. Keep the `TLS` Certificate Validation disabled.
+![Create Integration](images/central-create-integration.png)
+
+12. **OPTIONAL STEP**
+
+  - TO enable the TLS validation, first get the ingress cert from the Openshift cluster.
 ```bash
-oc create token rhacs-scanner-sa -n scan
-eyJhbGciOiJSUzI1NiIsImtpZCI6IkhtSHRmSm5Lbk5KYjZlRUt
+oc get cm default-ingress-cert -n openshift-config-managed -ojsonpath='{.data.*}'
 ```
+
+  - Edit the Central yaml from console - Installed Operators >> RHACS >> Central >> Click on Central instance >> Yaml >> Add the TLS cert like below. Take care of the indentation. Save it and reload it.
+```bash
+  scannerV4:
+    db:
+      persistence:
+        persistentVolumeClaim:
+          claimName: scanner-v4-db
+    indexer:
+      scaling:
+        autoScaling: Enabled
+        maxReplicas: 5
+        minReplicas: 2
+        replicas: 3
+    matcher:
+      scaling:
+        autoScaling: Enabled
+        maxReplicas: 5
+        minReplicas: 2
+        replicas: 3
+    scannerComponent: Default
+  tls:
+    additionalCAs:
+      - content: |
+          -----BEGIN CERTIFICATE-----
+          MIIDDDCCAfSgAwIBAgIBATANBgkqhkiG9w0BAQsFADAmMSQwIgYDVQQDDBtpbmdy
+          ZXNzLW9wZXJhdG9yQDE3MjM0NTYxMTIwHhcNMjQwODEyMDk0ODMyWhcNMjYwODEy
+          MDk0ODMzWjAmMSQwIgYDVQQDDBtpbmdyZXNzLW9wZXJhdG9yQDE3MjM0NTYxMTIw
+          ggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCsERrwX2BqFATRexlM4ZSP
+          XXHR6egUGV/qg67MqHQXkPsEX37Na2KZ7v43sO6+1rSCGCb+68DiX28b9s4yrgfZ
+          8+PVf+QRwZ1WgwSNqHZ0mQ==
+          -----END CERTIFICATE-----
+        name: registry-ca
+```
+   - After saving the configuration, restart the central pods
+```bash
+    oc project rhacs-operator;oc get pods
+    oc delete central-pod
+    oc delete central-db-pod
+```
+
 13. Download the roxctl
 
 ```bash
@@ -91,7 +135,7 @@ roxctl central whoami
 14. Configure roxctl to use Central Endpoint and API_TOKEN. Api token can be fetched from `Central UI >> Platform Configuration >> Integration >> API Token >> Generate Token`
 ![API TOKEN](images/central-api-token.png)
 ```bash
-export ROX_ENDPOINT="central-rhacs-operator.apps.url.com"
+export ROX_ENDPOINT="central-rhacs-operator.apps.url.com:443"
 export ROX_API_TOKEN="eyJhbGciOiJSUzI1NiIsImtpZCI6Imp3dGs"
 ```
 15. Login to Central
