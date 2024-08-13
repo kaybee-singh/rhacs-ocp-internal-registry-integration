@@ -1,0 +1,1 @@
+# rhacs-ocp-internal-registry-integration
